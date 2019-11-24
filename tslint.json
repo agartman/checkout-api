@@ -1,0 +1,13 @@
+{
+  "defaultSeverity": "error",
+  "extends": ["tslint:latest", "tslint-config-prettier"],
+  "jsRules": {
+    "semicolon": false,
+    "no-console": false
+  },
+  "rules": {
+    "no-console": false,
+    "semicolon": false
+  },
+  "rulesDirectory": []
+}
