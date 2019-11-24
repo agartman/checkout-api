@@ -1,15 +1,17 @@
 import axios from 'axios'
 import bodyParser from 'body-parser'
+import cors from 'cors'
 import { calculateHmac } from './hmac'
-import { IPayment } from './paymentTypes'
+import { IPayment, IPaymentPublic } from './paymentTypes'
 
 import express = require('express')
 // Create a new express application instance
 const app: express.Application = express()
 app.use(bodyParser.json())
+app.use(cors())
 
-const ACCOUNT = '375917'
-const SECRET = 'SAIPPUAKAUPPIAS'
+const ACCOUNT = process.env.CHECKOUT_ACCOUNT || '375917'
+const SECRET = process.env.CHECKOUT_SECRET || 'SAIPPUAKAUPPIAS'
 const getPaymentHeaders = (nonce: string, timestamp: string) => {
   return {
     'checkout-account': ACCOUNT,
@@ -25,21 +27,67 @@ app.get('/', (req, res) => {
   res.send('Hello World!!')
 })
 
+function getRandomInt(min: number, max: number) {
+  min = Math.ceil(min)
+  max = Math.floor(max)
+  return Math.floor(Math.random() * (max - min)) + min // The maximum is exclusive and the minimum is inclusive
+}
+
+const createInternalPayment = (publicCheckout: IPaymentPublic): IPayment => {
+  const orderId = `order-at-time-${Date.now()}`
+  const totalPrice = publicCheckout.items.reduce((accumulator, item) => {
+    return accumulator + item.unitPrice
+  }, 0)
+  return {
+    orderId,
+    amount: totalPrice,
+    currency: 'EUR',
+    customer: publicCheckout.customer,
+    items: publicCheckout.items.map((item: any) => {
+      return {
+        ...item,
+        deliveryDate: new Date().toISOString().substring(0, 10),
+        vatPercentage: 24
+      }
+    }),
+    language: 'FI',
+    reference: `${getRandomInt(10000, 99999)}`,
+    stamp: orderId,
+    callbackUrls: {
+      cancel: 'https://pizzaadev.appspot.com/callback/cancel',
+      success: 'https://pizzaadev.appspot.com/callback/success'
+    },
+    redirectUrls: {
+      cancel: 'http://localhost:3000/cancel',
+      success: 'http://localhost:3000/thanks'
+    }
+  }
+}
+
 app.post('/payments', async (req, res) => {
   const crypto = require('crypto')
   const nonce = crypto.randomBytes(16).toString('base64')
-  const body = req.body as IPayment
+  const publicCheckout = req.body as IPaymentPublic
+  const internalPayment = createInternalPayment(publicCheckout)
   const paymentHeaders = getPaymentHeaders(nonce, new Date().toISOString())
-  const paymentSignature = calculateHmac(SECRET, paymentHeaders, body)
+  const paymentSignature = calculateHmac(
+    SECRET!,
+    paymentHeaders,
+    internalPayment
+  )
 
-  const { status, statusText, data } = await axios.post('/payments', body, {
-    baseURL: 'https://api.checkout.fi',
-    headers: {
-      ...paymentHeaders,
-      'content-type': 'application/json; charset=utf-8',
-      signature: paymentSignature
+  const { status, statusText, data } = await axios.post(
+    '/payments',
+    internalPayment,
+    {
+      baseURL: 'https://api.checkout.fi',
+      headers: {
+        ...paymentHeaders,
+        'content-type': 'application/json; charset=utf-8',
+        signature: paymentSignature
+      }
     }
-  })
+  )
   if (status === 201) {
     res.send(data)
   } else {
@@ -47,22 +95,16 @@ app.post('/payments', async (req, res) => {
   }
 })
 
-app.get('/success', (req, res) => {
-  console.log('SUCCESS')
-  console.log(JSON.stringify(req))
-  res.send('Success')
+app.get('/callback/success', (req, res) => {
+  console.log('CALLBACK SUCCESS')
+  console.log('query', req.query)
+  res.send('CALLBACK SUCCESS')
 })
 
-app.get('/cancel', (req, res) => {
-  console.log('CANCEL')
-  console.log(JSON.stringify(req))
-  res.send('Canceled')
-})
-
-app.get('/callback', (req, res) => {
-  console.log('CALLBACK')
-  console.log(JSON.stringify(req))
-  res.send('Canceled')
+app.get('/callback/cancel', (req, res) => {
+  console.log('CALLBACK cancel')
+  console.log('query', req.query)
+  res.send('CALLBACK cancel')
 })
 
 const server = app.listen(8080, () => {

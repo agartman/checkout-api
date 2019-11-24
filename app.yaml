@@ -1,2 +1,5 @@
 runtime: nodejs
 env: flex
+env_variables:
+  CHECKOUT_ACCOUNT: 375917
+  CHECKOUT_SECRET: SAIPPUAKAUPPIAS
